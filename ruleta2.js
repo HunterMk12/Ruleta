@@ -18,8 +18,8 @@ async function getNumeros() {
 }
 
 async function iniciarRuleta() {
-    const ganadores = await getGanadores();
-    const numeros = await getNumeros();
+    let ganadores = await getGanadores();
+    let numeros = await getNumeros();
     ruleta = numeros.map(n => n.valor).concat(ganadores.map(g => g.valor));
     dibujar();
     document.getElementById("iniciar").onclick = () => girarTrampa(ganadores);

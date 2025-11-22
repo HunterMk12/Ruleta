@@ -18,8 +18,8 @@ async function getNumeros() {
 }
 
 async function iniciarRuleta() {
-    const ganadores = await getGanadores();
-    const numeros = await getNumeros();
+    let ganadores = await getGanadores();
+    let numeros = await getNumeros();
     ruleta = numeros.map(n => n.valor).concat(ganadores.map(g => g.valor));
     dibujar();
     document.getElementById("iniciar").onclick = () => girarNormal();
@@ -91,4 +91,70 @@ function drawRotation(rotation) {
     }
 }
 
-document.addEventListener("DOMContentLoaded", iniciarRuleta);
+function validarNumero(valor) {
+    return /^[0-9]{4}$/.test(valor);
+}
+
+async function agregarNumero() {
+    let numero = document.getElementById("numeroInput").value.trim();
+    let msg = document.getElementById("mensaje");
+    let lista = await getNumeros();
+    if (lista.some(n => n.valor == numero)) {
+        msg.textContent = "Este número ya fue colocado.";
+        msg.style.color = "red";
+        return;
+    }
+    if (!validarNumero(numero)) {
+        msg.textContent = "El número debe ser de 4 dígitos.";
+        msg.style.color = "red";
+        return;
+    }
+    const data = { valor: numero };
+    let r = await fetch(`${SUPABASE_URL}/rest/v1/numero`, {
+        method: "POST",
+        headers: {
+            "apikey": API_KEY,
+            "Authorization": `Bearer ${API_KEY}`,
+            "Content-Type": "application/json",
+            "Prefer": "return=minimal"
+        },
+        body: JSON.stringify(data)
+    });
+    if (r.ok) {
+        msg.textContent = "Número guardado.";
+        msg.style.color = "green";
+        document.getElementById("numeroInput").value = "";
+        await cargarListaNumeros();
+        await iniciarRuleta();
+    }
+}
+
+async function cargarListaNumeros() {
+    let numeros = await getNumeros();
+    let lista = document.getElementById("listaNumeros");
+    lista.innerHTML = "";
+    numeros.forEach(n => {
+        let li = document.createElement("li");
+        li.innerHTML = `${n.valor} <button onclick="borrarNumero(${n.id})">X</button>`;
+        lista.appendChild(li);
+    });
+}
+
+async function borrarNumero(id) {
+    await fetch(`${SUPABASE_URL}/rest/v1/numero?id=eq.${id}`, {
+        method: "DELETE",
+        headers: { "apikey": API_KEY, "Authorization": `Bearer ${API_KEY}` }
+    });
+    await cargarListaNumeros();
+    await iniciarRuleta();
+}
+
+document.getElementById("numeroInput").addEventListener("input", function () {
+    this.value = this.value.replace(/[^0-9]/g, "");
+    if (this.value.length > 4) this.value = this.value.slice(0, 4);
+});
+
+document.addEventListener("DOMContentLoaded", async () => {
+    await cargarListaNumeros();
+    iniciarRuleta();
+});
