@@ -1,4 +1,5 @@
 let ruleta = [];
+let rotacionAcumulada = 0;
 
 const SUPABASE_URL = "https://bifnkdsevykstbwzpqqp.supabase.co";
 const API_KEY = "sb_publishable_FRxgP2w5yNG5sWufKCxGAg_01Z45wFL";
@@ -20,9 +21,13 @@ async function getNumeros() {
 async function iniciarRuleta() {
     let ganadores = await getGanadores();
     let numeros = await getNumeros();
-    ruleta = numeros.map(n => n.valor).concat(ganadores.map(g => g.valor));
+
+    const todosLosValores = numeros.map(n => n.valor).concat(ganadores.map(g => g.valor));
+    ruleta = Array.from(new Set(todosLosValores));
+
     dibujar();
     document.getElementById("iniciar").onclick = () => girarTrampa(ganadores);
+    cargarListaNumeros(numeros, ganadores);
 }
 
 function dibujar() {
@@ -30,18 +35,20 @@ function dibujar() {
     const ctx = c.getContext("2d");
     const t = ruleta.length;
     const a = 2 * Math.PI / t;
+    const offset = -Math.PI / 2;
+
     ctx.clearRect(0, 0, c.width, c.height);
 
     for (let i = 0; i < t; i++) {
         ctx.beginPath();
         ctx.moveTo(c.width/2, c.height/2);
         ctx.fillStyle = `hsl(${i*40}, 80%, 60%)`;
-        ctx.arc(c.width/2, c.height/2, c.width/2, a*i, a*(i+1));
+        ctx.arc(c.width/2, c.height/2, c.width/2, a*i + offset, a*(i+1) + offset);
         ctx.fill();
 
         ctx.save();
         ctx.translate(c.width/2, c.height/2);
-        ctx.rotate(a*i + a/2);
+        ctx.rotate(a*i + a/2 + offset);
         ctx.fillStyle = "#000";
         ctx.font = "20px Arial";
         ctx.fillText(ruleta[i], 60, 10);
@@ -60,23 +67,47 @@ function dibujar() {
 function girarTrampa(ganadores) {
     if (ruleta.length === 0) return mostrarGanador("No hay números en la ruleta.");
     if (ganadores.length === 0) return mostrarGanador("No hay ganadores definidos.");
-    const t = ruleta.length;
-    const a = 2 * Math.PI / t;
+
     const ganadorSeleccionado = ganadores[Math.floor(Math.random()*ganadores.length)].valor;
     const index = ruleta.indexOf(ganadorSeleccionado);
-    let spins = 5;
-    let currentRotation = 0;
-    const targetRotation = 2 * Math.PI * spins + index*a + a/2;
+
+    if (index === -1) return mostrarGanador("Error: El ganador no está en el tablero.");
+
+    const t = ruleta.length;
+    const a = 2 * Math.PI / t;
+    const spins = 5;
+
+    const anguloGanador = index * a + a/2;
+    const distanciaHastaLaCima = (2 * Math.PI) - anguloGanador;
+
+    const rotacionActualNormalizada = rotacionAcumulada % (2 * Math.PI);
+
+    let deltaGiro = distanciaHastaLaCima - rotacionActualNormalizada;
+
+    if (deltaGiro < 0) {
+        deltaGiro += 2 * Math.PI;
+    }
+
+    const rotacionNecesaria = (spins * 2 * Math.PI) + deltaGiro;
+    const targetRotation = rotacionAcumulada + rotacionNecesaria;
+
     const duration = 4000;
     const start = performance.now();
+
     function anim(time){
         let elapsed = time - start;
         let progress = Math.min(elapsed/duration,1);
         let ease = 1 - Math.pow(1 - progress, 3);
-        currentRotation = targetRotation * ease;
+
+        let currentRotation = rotacionAcumulada + rotacionNecesaria * ease;
         drawRotation(currentRotation);
-        if(progress < 1) requestAnimationFrame(anim);
-        else mostrarGanador(ganadorSeleccionado);
+
+        if(progress < 1) {
+            requestAnimationFrame(anim);
+        } else {
+            rotacionAcumulada = currentRotation;
+            mostrarGanador(ganadorSeleccionado);
+        }
     }
     requestAnimationFrame(anim);
 }
@@ -86,18 +117,20 @@ function drawRotation(rotation){
     const ctx = c.getContext("2d");
     const t = ruleta.length;
     const a = 2 * Math.PI / t;
+    const offset = -Math.PI / 2;
+
     ctx.clearRect(0, 0, c.width, c.height);
 
     for(let i=0;i<t;i++){
         ctx.beginPath();
         ctx.moveTo(c.width/2, c.height/2);
         ctx.fillStyle = `hsl(${i*40}, 80%, 60%)`;
-        ctx.arc(c.width/2, c.height/2, c.width/2, a*i+rotation, a*(i+1)+rotation);
+        ctx.arc(c.width/2, c.height/2, c.width/2, a*i+rotation + offset, a*(i+1)+rotation + offset);
         ctx.fill();
 
         ctx.save();
         ctx.translate(c.width/2, c.height/2);
-        ctx.rotate(a*i + a/2 + rotation);
+        ctx.rotate(a*i + a/2 + rotation + offset);
         ctx.fillStyle = "#000";
         ctx.font = "20px Arial";
         ctx.fillText(ruleta[i], 60, 10);
@@ -136,5 +169,81 @@ function mostrarGanador(valor){
     modal.style.display="flex";
 }
 
-document.addEventListener("DOMContentLoaded",iniciarRuleta);
+function validarNumero(valor) {
+    return /^[0-9]{4}$/.test(valor);
+}
 
+async function agregarNumero() {
+    let numero = document.getElementById("numeroInput").value.trim();
+    let msg = document.getElementById("mensaje");
+    let lista = await getNumeros();
+
+    if(lista.some(n=>n.valor==numero)){
+        msg.textContent="Este número ya fue colocado.";
+        msg.style.color="red";
+        return;
+    }
+    if(!validarNumero(numero)){
+        msg.textContent="El número debe ser de 4 dígitos.";
+        msg.style.color="red";
+        return;
+    }
+    const data = { valor: numero };
+    let r = await fetch(`${SUPABASE_URL}/rest/v1/numero`, {
+        method:"POST",
+        headers:{
+            "apikey": API_KEY,
+            "Authorization": `Bearer ${API_KEY}`,
+            "Content-Type": "application/json",
+            "Prefer":"return=minimal"
+        },
+        body: JSON.stringify(data)
+    });
+    if(r.ok){
+        msg.textContent="Número guardado.";
+        msg.style.color="green";
+        document.getElementById("numeroInput").value="";
+        await iniciarRuleta();
+        setTimeout(() => msg.textContent = '', 3000);
+    }
+}
+
+function cargarListaNumeros(numeros, ganadores) {
+    let lista = document.getElementById("listaNumeros");
+    lista.innerHTML="";
+
+    numeros.forEach(n=>{
+        let li=document.createElement("li");
+        li.innerHTML=`${n.valor} <button onclick="borrarNumero(${n.id})">X</button>`;
+        lista.appendChild(li);
+    });
+
+    ganadores.forEach(g=>{
+        let li=document.createElement("li");
+        li.innerHTML=`${g.valor} <button onclick="borrarGanador(${g.id})">X</button>`;
+        lista.appendChild(li);
+    });
+}
+
+async function borrarNumero(id) {
+    await fetch(`${SUPABASE_URL}/rest/v1/numero?id=eq.${id}`,{
+        method:"DELETE",
+        headers:{"apikey":API_KEY,"Authorization":`Bearer ${API_KEY}`}
+    });
+    await iniciarRuleta();
+}
+
+async function borrarGanador(id) {
+    await fetch(`${SUPABASE_URL}/rest/v1/ganador?id=eq.${id}`,{
+        method:"DELETE",
+        headers:{"apikey":API_KEY,"Authorization":`Bearer ${API_KEY}`}
+    });
+    await iniciarRuleta();
+}
+
+document.getElementById("numeroInput").addEventListener("input",function(){
+    this.value=this.value.replace(/[^0-9]/g,"");
+    if(this.value.length>4) this.value=this.value.slice(0,4);
+});
+
+document.addEventListener("DOMContentLoaded",iniciarRuleta);

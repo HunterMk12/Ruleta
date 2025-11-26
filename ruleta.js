@@ -1,4 +1,5 @@
 let ruleta = [];
+let rotacionAcumulada = 0;
 
 const SUPABASE_URL = "https://bifnkdsevykstbwzpqqp.supabase.co";
 const API_KEY = "sb_publishable_FRxgP2w5yNG5sWufKCxGAg_01Z45wFL";
@@ -20,7 +21,8 @@ async function getNumeros() {
 async function iniciarRuleta() {
     let ganadores = await getGanadores();
     let numeros = await getNumeros();
-    ruleta = numeros.map(n => n.valor).concat(ganadores.map(g => g.valor));
+    const todosLosValores = numeros.map(n => n.valor).concat(ganadores.map(g => g.valor));
+    ruleta = Array.from(new Set(todosLosValores));
     dibujar();
     document.getElementById("iniciar").onclick = () => girarNormal();
     await cargarListaNumeros();
@@ -31,18 +33,20 @@ function dibujar() {
     const ctx = c.getContext("2d");
     const t = ruleta.length;
     const a = 2 * Math.PI / t;
+    const offset = -Math.PI / 2;
+
     ctx.clearRect(0, 0, c.width, c.height);
 
     for (let i = 0; i < t; i++) {
         ctx.beginPath();
         ctx.moveTo(c.width / 2, c.height / 2);
         ctx.fillStyle = `hsl(${i * 40}, 80%, 60%)`;
-        ctx.arc(c.width / 2, c.height / 2, c.width / 2, a * i, a * (i + 1));
+        ctx.arc(c.width / 2, c.height / 2, c.width / 2, a * i + offset, a * (i + 1) + offset);
         ctx.fill();
 
         ctx.save();
         ctx.translate(c.width / 2, c.height / 2);
-        ctx.rotate(a * i + a / 2);
+        ctx.rotate(a * i + a / 2 + offset);
         ctx.fillStyle = "#000";
         ctx.font = "20px Arial";
         ctx.fillText(ruleta[i], 60, 10);
@@ -57,24 +61,48 @@ function dibujar() {
     ctx.fill();
 }
 
-function girarNormal() {
-    if (ruleta.length === 0) return mostrarGanador("No hay números en la ruleta.");
+function determinarGanador(finalRotation) {
     const t = ruleta.length;
     const a = 2 * Math.PI / t;
-    let randomIndex = Math.floor(Math.random() * t);
+
+    let anguloNormalizado = finalRotation % (2 * Math.PI);
+
+    let anguloRelativo = (2 * Math.PI - anguloNormalizado) % (2 * Math.PI);
+
+    let indiceGanador = Math.floor(anguloRelativo / a);
+
+    if (indiceGanador >= t) indiceGanador = 0;
+
+    return ruleta[indiceGanador];
+}
+
+function girarNormal() {
+    if (ruleta.length === 0) return mostrarGanador("No hay números en la ruleta.");
+
+    const anguloDetencion = Math.random() * (2 * Math.PI);
     let spins = 5;
-    let currentRotation = 0;
-    const targetRotation = 2 * Math.PI * spins + randomIndex * a + a / 2;
+
+    const rotacionNecesaria = (2 * Math.PI * spins) + anguloDetencion;
+    const targetRotation = rotacionAcumulada + rotacionNecesaria;
+
     const duration = 4000;
     const start = performance.now();
+
     function anim(time) {
         let elapsed = time - start;
         let progress = Math.min(elapsed / duration, 1);
         let ease = 1 - Math.pow(1 - progress, 3);
-        currentRotation = targetRotation * ease;
+
+        let currentRotation = rotacionAcumulada + rotacionNecesaria * ease;
         drawRotation(currentRotation);
-        if (progress < 1) requestAnimationFrame(anim);
-        else mostrarGanador(ruleta[randomIndex]);
+
+        if (progress < 1) {
+            requestAnimationFrame(anim);
+        } else {
+            rotacionAcumulada = currentRotation % (2 * Math.PI);
+            const ganador = determinarGanador(rotacionAcumulada);
+            mostrarGanador(ganador);
+        }
     }
     requestAnimationFrame(anim);
 }
@@ -84,24 +112,27 @@ function drawRotation(rotation) {
     const ctx = c.getContext("2d");
     const t = ruleta.length;
     const a = 2 * Math.PI / t;
+    const offset = -Math.PI / 2;
+
     ctx.clearRect(0, 0, c.width, c.height);
 
     for (let i = 0; i < t; i++) {
         ctx.beginPath();
         ctx.moveTo(c.width/2, c.height/2);
         ctx.fillStyle = `hsl(${i * 40}, 80%, 60%)`;
-        ctx.arc(c.width/2, c.height/2, c.width/2, a*i+rotation, a*(i+1)+rotation);
+        // Offset aplicado
+        ctx.arc(c.width/2, c.height/2, c.width/2, a*i + rotation + offset, a*(i+1) + rotation + offset);
         ctx.fill();
 
         ctx.save();
         ctx.translate(c.width/2, c.height/2);
-        ctx.rotate(a*i + a/2 + rotation);
+        // Offset aplicado
+        ctx.rotate(a*i + a/2 + rotation + offset);
         ctx.fillStyle = "#000";
         ctx.font = "20px Arial";
         ctx.fillText(ruleta[i], 60, 10);
         ctx.restore();
     }
-
     ctx.beginPath();
     ctx.moveTo(c.width/2 - 10, 0);
     ctx.lineTo(c.width/2 + 10, 0);
@@ -169,6 +200,7 @@ async function agregarNumero() {
         document.getElementById("numeroInput").value="";
         await cargarListaNumeros();
         await iniciarRuleta();
+        setTimeout(() => msg.textContent = '', 3000);
     }
 }
 
